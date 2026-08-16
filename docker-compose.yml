@@ -1,0 +1,99 @@
+# Paperless-ngx application stack.
+#
+# Requires postgres to already be running on this host —
+# this stack connects to it over the external `postgres_net` network rather
+# than running its own database.
+#
+# Data layout: everything paperless owns lives under
+# /media/nextcdata/paperless/ on the host: data, media, export, import.
+#
+# Backup: the `backup` sidecar wakes up nightly, asks paperless to refresh
+# its document-exporter snapshot in export/, then pushes that snapshot to
+# your Hetzner Storage Box with borg (see backup.sh).
+#
+# ONE-TIME SETUP before first start:
+#   1. mkdir -p /media/nextcdata/paperless/{data,media,export,import}
+#   2. Generate a dedicated backup key and add its PUBLIC half to your
+#      Storage Box's authorized SSH keys (Hetzner Robot panel, or
+#      `ssh-copy-id -p 23 <user>@<user>.your-storagebox.de`):
+#        mkdir -p secrets
+#        ssh-keygen -t ed25519 -f secrets/borg_ssh_key -N ""
+#   3. Create a paperless.env file next to this compose file with:
+#        STORAGEBOX_USER=u123456
+#        BORG_PASSPHRASE=<a strong passphrase — write it down somewhere safe,
+#                          losing it means losing access to the backups>
+#   4. Make sure PAPERLESS_DBPASS below matches postgres creds.
+#   5. After first `docker compose up -d`, test the backup once manually:
+#        docker exec paperless-backup /backup.sh
+#
+# Note: the `backup` sidecar is given the Docker socket so it can `docker
+# exec` into the paperless container. That's effectively root-equivalent
+# access to the host — standard for this kind of maintenance sidecar, but
+# worth knowing.
+
+services:
+  broker:
+    image: docker.io/valkey/valkey:9-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: paperless-webserver
+    restart: unless-stopped
+    depends_on:
+      - broker
+    networks:
+      - default
+      - postgres_net
+    ports:
+      - "8000:8000"
+    volumes:
+      - /media/nextcdata/paperless/data:/usr/src/paperless/data
+      - /media/nextcdata/paperless/media:/usr/src/paperless/media
+      - /media/nextcdata/paperless/export:/usr/src/paperless/export
+      - /media/nextcdata/paperless/import:/usr/src/paperless/consume
+    env_file: paperless.env
+    environment:
+      PAPERLESS_TIME_ZONE: Europe/Berlin
+      PAPERLESS_OCR_LANGUAGE: deu
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: shared-postgres
+      PAPERLESS_DBENGINE: postgresql
+      PAPERLESS_DBNAME: paperless
+
+  backup:
+    image: alpine:3.22
+    container_name: paperless-backup
+    restart: unless-stopped
+    depends_on:
+      - webserver
+    volumes:
+      - /media/nextcdata/paperless/export:/export:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./backup.sh:/backup.sh:ro
+      - ./secrets/borg_ssh_key:/root/.ssh/id_borg:ro
+    environment:
+      TZ: Europe/Berlin
+      EXPORT_CONTAINER: paperless-webserver
+      BORG_REPO: ssh://${STORAGEBOX_USER}@${STORAGEBOX_USER}.your-storagebox.de:23/./paperless
+      BORG_PASSPHRASE: ${BORG_PASSPHRASE}
+      BORG_RSH: ssh -i /root/.ssh/id_borg -p 23 -o StrictHostKeyChecking=accept-new
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache borgbackup docker-cli openssh-client tzdata
+        chmod 600 /root/.ssh/id_borg
+        chmod +x /backup.sh
+        echo '0 3 * * * /backup.sh >> /proc/1/fd/1 2>&1' > /etc/crontabs/root
+        crond -f -l 2
+
+networks:
+  default: {}
+  postgres_net:
+    external: true
+
+volumes:
+  redisdata:
