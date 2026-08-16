@@ -54,43 +54,45 @@ services:
       - /media/nextcdata/paperless/media:/usr/src/paperless/media
       - /media/nextcdata/paperless/export:/usr/src/paperless/export
       - /media/nextcdata/paperless/import:/usr/src/paperless/consume
-    env_file: paperless.env
     environment:
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
       PAPERLESS_TIME_ZONE: Europe/Berlin
       PAPERLESS_OCR_LANGUAGE: deu
       PAPERLESS_REDIS: redis://broker:6379
       PAPERLESS_DBHOST: shared-postgres
       PAPERLESS_DBENGINE: postgresql
+      PAPERLESS_DBUSER: ${PAPERLESS_DBUSER}
+      PAPERLESS_DBPASS: ${PAPERLESS_DBPASS}
       PAPERLESS_DBNAME: paperless
       USERMAP_UID: 999
       USERMAP_GID: 995
 
-  backup:
-    image: alpine:3.22
-    container_name: paperless-backup
-    restart: unless-stopped
-    depends_on:
-      - webserver
-    volumes:
-      - /media/nextcdata/paperless/export:/export:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./backup.sh:/backup.sh:ro
-      - ./secrets/borg_ssh_key:/root/.ssh/id_borg:ro
-    environment:
-      TZ: Europe/Berlin
-      EXPORT_CONTAINER: paperless-webserver
-      BORG_REPO: ssh://${STORAGEBOX_USER}@${STORAGEBOX_USER}.your-storagebox.de:23/./paperless
-      BORG_PASSPHRASE: ${BORG_PASSPHRASE}
-      BORG_RSH: ssh -i /root/.ssh/id_borg -p 23 -o StrictHostKeyChecking=accept-new
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        apk add --no-cache borgbackup docker-cli openssh-client tzdata
-        chmod 600 /root/.ssh/id_borg
-        chmod +x /backup.sh
-        echo '0 3 * * * /backup.sh >> /proc/1/fd/1 2>&1' > /etc/crontabs/root
-        crond -f -l 2
+#  backup:
+#    image: alpine:3.22
+#    container_name: paperless-backup
+#    restart: unless-stopped
+#    depends_on:
+#      - webserver
+#    volumes:
+#      - /media/nextcdata/paperless/export:/export:ro
+#      - /var/run/docker.sock:/var/run/docker.sock
+#      - ./backup.sh:/backup.sh:ro
+#      - ./secrets/borg_ssh_key:/root/.ssh/id_borg:ro #TODO: create key, or copy machine key and remove password
+#    environment:
+#      TZ: Europe/Berlin
+#      EXPORT_CONTAINER: paperless-webserver
+#      BORG_REPO: ssh://${STORAGEBOX_USER}@${STORAGEBOX_USER}.your-storagebox.de:23/./paperless
+#      BORG_PASSPHRASE: ${BORG_PASSPHRASE}
+#      BORG_RSH: ssh -i /root/.ssh/id_borg -p 23 -o StrictHostKeyChecking=accept-new
+#    entrypoint:
+#      - /bin/sh
+#      - -c
+#      - |
+#        apk add --no-cache borgbackup docker-cli openssh-client tzdata
+#        chmod 600 /root/.ssh/id_borg
+#        chmod +x /backup.sh
+#        echo '0 3 * * * /backup.sh >> /proc/1/fd/1 2>&1' > /etc/crontabs/root
+#        crond -f -l 2
 
 networks:
   default: {}
