@@ -2,3 +2,4 @@
 /paperless.env
 
 .idea
+.env

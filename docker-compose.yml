@@ -81,7 +81,7 @@ services:
 #    environment:
 #      TZ: Europe/Berlin
 #      EXPORT_CONTAINER: paperless-webserver
-#      BORG_REPO: ssh://${STORAGEBOX_USER}@${STORAGEBOX_USER}.your-storagebox.de:23/./paperless
+#      BORG_REPO: ${BORG_REPO}
 #      BORG_PASSPHRASE: ${BORG_PASSPHRASE}
 #      BORG_RSH: ssh -i /root/.ssh/id_borg -p 23 -o StrictHostKeyChecking=accept-new
 #    entrypoint:
