@@ -62,6 +62,8 @@ services:
       PAPERLESS_DBHOST: shared-postgres
       PAPERLESS_DBENGINE: postgresql
       PAPERLESS_DBNAME: paperless
+      USERMAP_UID: 999
+      USERMAP_GID: 995
 
   backup:
     image: alpine:3.22
