@@ -44,6 +44,8 @@ services:
     restart: unless-stopped
     depends_on:
       - broker
+      - gotenberg
+      - tika
     networks:
       - default
       - postgres_net
@@ -64,8 +66,24 @@ services:
       PAPERLESS_DBUSER: ${PAPERLESS_DBUSER}
       PAPERLESS_DBPASS: ${PAPERLESS_DBPASS}
       PAPERLESS_DBNAME: paperless
+      PAPERLESS_TIKA_ENABLED: 1
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
       USERMAP_UID: 999
       USERMAP_GID: 995
+
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:latest
+    restart: unless-stopped
+    # The gotenberg chromium route is used to convert .eml files. We do not
+    # want to allow external content like tracking pixels or even javascript.
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=file:///tmp/.*"
+  tika:
+    image: docker.io/apache/tika:latest
+    restart: unless-stopped
 
 #  backup:
 #    image: alpine:3.22
