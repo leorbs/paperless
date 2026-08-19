@@ -19,7 +19,7 @@
 #        mkdir -p secrets
 #        ssh-keygen -t ed25519 -f secrets/borg_ssh_key -N ""
 #   3. Create a paperless.env file next to this compose file with:
-#        STORAGEBOX_USER=u123456
+#        BORG_REPO=ssh://u123456@u123456.your-storagebox.de:23/./paperless
 #        BORG_PASSPHRASE=<a strong passphrase — write it down somewhere safe,
 #                          losing it means losing access to the backups>
 #   4. Make sure PAPERLESS_DBPASS below matches postgres creds.
