@@ -11,6 +11,10 @@
 # its document-exporter snapshot in export/, then pushes that snapshot to
 # your Hetzner Storage Box with borg (see backup.sh).
 #
+# Health: the same sidecar serves a JSON health endpoint on port 1337.
+# After every successful run backup.sh stamps /health/last-backup with the
+# current date; the endpoint reports UP while that file is fresh.
+#
 # ONE-TIME SETUP before first start:
 #   1. mkdir -p /media/nextcdata/paperless/{data,media,export,import}
 #   2. Generate a dedicated backup key and add its PUBLIC half to your
@@ -24,7 +28,7 @@
 #                          losing it means losing access to the backups>
 #   4. Make sure PAPERLESS_DBPASS below matches postgres creds.
 #   5. After first `docker compose up -d`, test the backup once manually:
-#        docker exec paperless-backup /backup.sh
+#        docker exec paperless-backup /usr/local/bin/backup
 #
 # Note: the `backup` sidecar is given the Docker socket so it can `docker
 # exec` into the paperless container. That's effectively root-equivalent
@@ -91,14 +95,18 @@ services:
     restart: unless-stopped
     depends_on:
       - webserver
+    ports:
+      - "1337:1337"
     volumes:
       - /media/nextcdata/paperless/export:/export:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./backup.sh:/backup.sh:ro
+      - ./health-server.sh:/health-server.sh:ro
       - ./secrets/borg_ssh_key:/root/.ssh/id_borg:ro
     environment:
       TZ: Europe/Berlin
       EXPORT_CONTAINER: paperless-webserver
+      HEALTH_DIR: /health
       BORG_REPO: ${BORG_REPO}
       BORG_PASSPHRASE: ${BORG_PASSPHRASE}
       BORG_RSH: ssh -i /root/.ssh/id_borg -p 23 -o StrictHostKeyChecking=accept-new
@@ -108,8 +116,14 @@ services:
       - |
         apk add --no-cache borgbackup docker-cli openssh-client tzdata
         chmod 600 /root/.ssh/id_borg
-        chmod +x /backup.sh
-        echo '0 3 * * * /backup.sh >> /proc/1/fd/1 2>&1' > /etc/crontabs/root
+        # Scripts are mounted :ro, so copy them to writable locations first.
+        cp /backup.sh /usr/local/bin/backup
+        cp /health-server.sh /usr/local/bin/health
+        chmod +x /usr/local/bin/backup
+        chmod +x /usr/local/bin/health
+        mkdir -p /health
+        echo '0 3 * * * /usr/local/bin/backup >> /proc/1/fd/1 2>&1' > /etc/crontabs/root
+        nc -lk -p 1337 -e /usr/local/bin/health &
         crond -f -l 2
 
 networks:
