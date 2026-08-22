@@ -28,21 +28,20 @@ fi
 input="$1"
 output="$2"
 
-# Force JPEG input explicitly: the caller stages the raw download under a
-# neutral name (no image extension), so ImageMagick cannot sniff the format
-# from the filename.
-dpi=$(magick identify -format '%x\n' "jpg:$input" 2>/dev/null | head -n 1)
+# The caller stages the raw JPEG under a `.jpg` name, so ImageMagick detects
+# the format from the extension.
+dpi=$(magick identify -format '%x\n' "$input" 2>/dev/null | head -n 1)
 case "$dpi" in
   ''|*[!0-9]*) dpi=0 ;;
 esac
 
 if [ "$dpi" -gt "$DPI_THRESHOLD" ]; then
-  magick "jpg:$input" \
+  magick "$input" \
     -filter Lanczos -resize 50% -density 300 \
     -white-balance -level 10%,85% -sharpen 0x0.7 -quality 92 \
     "$output"
 else
-  magick "jpg:$input" \
+  magick "$input" \
     -white-balance -level 10%,85% -sharpen 0x0.7 -quality 92 \
     "$output"
 fi

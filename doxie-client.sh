@@ -102,11 +102,16 @@ ingest() {
   stem="${name%.*}"
 
   case "$ext" in
-    jpg|jpeg) final_name="$(lower "$stem").jpg" ;;
-    *)        final_name="$name" ;;
+    jpg|jpeg)
+      final_name="$(lower "$stem").jpg"
+      raw="$WORK_DIR/${stem}.jpg"
+      ;;
+    *)
+      final_name="$name"
+      raw="$WORK_DIR/${stem}.download"
+      ;;
   esac
 
-  raw="$WORK_DIR/${stem}.download"
   final="$CONSUME_DIR/$(date +%Y%m%dT%H%M%S)-${final_name}"
 
   if ! download "$BASE/scans$path" "$raw"; then
