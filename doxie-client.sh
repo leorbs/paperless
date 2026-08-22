@@ -9,7 +9,7 @@
 # File types:
 #   * JPG/JPEG -> normalized with ImageMagick: 300 dpi kept as-is, 600 dpi
 #                 downscaled to 300 dpi (white-balance, level, sharpen).
-#                 The output stays a JPEG.
+#                 The output is wrapped in a single-page PDF.
 #   * PDF      -> passed straight through to paperless (no preprocessing).
 #
 # All downloading and preprocessing happens in WORK_DIR, so the consume dir
@@ -103,7 +103,7 @@ ingest() {
 
   case "$ext" in
     jpg|jpeg)
-      final_name="$(lower "$stem").jpg"
+      final_name="$(lower "$stem").pdf"
       raw="$WORK_DIR/${stem}.jpg"
       ;;
     *)
@@ -121,7 +121,7 @@ ingest() {
   fi
 
   if [ "$ext" = "jpg" ] || [ "$ext" = "jpeg" ]; then
-    out="$WORK_DIR/${stem}.processed.jpg"
+    out="$WORK_DIR/${stem}.processed.pdf"
     if ! preprocess "$raw" "$out"; then
       rm -f "$raw" "$out"
       log "preprocessing failed for ${name}; leaving it on the scanner"

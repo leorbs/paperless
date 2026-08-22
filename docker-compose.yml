@@ -19,7 +19,8 @@
 # scans, preprocesses them and drops the results into paperless' consume
 # folder, then deletes the originals from the scanner.
 #   * JPG scans -> normalized with ImageMagick: 300 dpi kept as-is, 600 dpi
-#                  downscaled to 300 dpi (white-balance, level, sharpen).
+#                  downscaled to 300 dpi (white-balance, level, sharpen), then
+#                  wrapped in a single-page PDF.
 #   * PDF scans -> passed through unchanged.
 # The sidecar downloads and preprocesses scans in a private WORK_DIR, runs as
 # root and chowns each finished file to CONSUME_OWNER (paperless' uid:gid)
