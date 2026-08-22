@@ -15,6 +15,11 @@
 # After every successful run backup.sh stamps /health/last-backup with the
 # current date; the endpoint reports UP while that file is fresh.
 #
+# Doxie: the `doxie` sidecar periodically checks your Doxie scanner for new
+# scans, downloads them into paperless' consume folder and then deletes them
+# from the scanner. Scanner address and poll interval come from the .env file
+# (DOXIE_IP, DOXIE_POLL_INTERVAL, optional DOXIE_PASSWORD).
+#
 # ONE-TIME SETUP before first start:
 #   1. mkdir -p /media/nextcdata/paperless/{data,media,export,import}
 #   2. Generate a dedicated backup key and add its PUBLIC half to your
@@ -89,6 +94,33 @@ services:
     image: docker.io/apache/tika:latest
     restart: unless-stopped
 
+  doxie:
+    image: alpine:3.22
+    container_name: paperless-doxie
+    restart: unless-stopped
+    depends_on:
+      - webserver
+    volumes:
+      - /media/nextcdata/paperless/import:/consume
+      - ./doxie-client.sh:/doxie-client.sh:ro
+    environment:
+      TZ: Europe/Berlin
+      CONSUME_DIR: /consume
+      CONSUME_OWNER: ${CONSUME_OWNER:-999:995}
+      DOXIE_IP: ${DOXIE_IP:-10.10.100.1}
+      DOXIE_POLL_INTERVAL: ${DOXIE_POLL_INTERVAL:-300}
+      DOXIE_PASSWORD: ${DOXIE_PASSWORD:-}
+      DOXIE_TIMEOUT: ${DOXIE_TIMEOUT:-3}
+      DOXIE_DOWNLOAD_TIMEOUT: ${DOXIE_DOWNLOAD_TIMEOUT:-120}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache curl jq
+        cp /doxie-client.sh /usr/local/bin/doxie-client
+        chmod +x /usr/local/bin/doxie-client
+        exec /usr/local/bin/doxie-client
+
   backup:
     image: alpine:3.22
     container_name: paperless-backup
@@ -115,7 +147,6 @@ services:
       - -c
       - |
         apk add --no-cache borgbackup docker-cli openssh-client tzdata
-        chmod 600 /root/.ssh/id_borg
         # Scripts are mounted :ro, so copy them to writable locations first.
         cp /backup.sh /usr/local/bin/backup
         cp /health-server.sh /usr/local/bin/health
