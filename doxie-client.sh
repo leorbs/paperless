@@ -2,8 +2,19 @@
 # Doxie scanner client.
 #
 # Periodically checks a Doxie Q / Doxie Go SE Wi-Fi scanner for new scans,
-# downloads them into the paperless consume directory and then deletes them
-# from the scanner (via the bulk-delete endpoint).
+# downloads them, preprocesses the images (see `preprocess`) and drops the
+# results into the paperless consume directory, then deletes the originals
+# from the scanner via the bulk-delete endpoint.
+#
+# File types:
+#   * JPG/JPEG -> normalized with ImageMagick: 300 dpi kept as-is, 600 dpi
+#                 downscaled to 300 dpi (white-balance, level, sharpen).
+#                 The output stays a JPEG.
+#   * PDF      -> passed straight through to paperless (no preprocessing).
+#
+# The container runs as root and chowns each file it drops into the consume
+# dir to CONSUME_OWNER (paperless' uid:gid) so paperless can read and delete
+# them.
 #
 # Energy efficiency:
 #   * Every probe request carries a very short timeout, so the container only
@@ -18,6 +29,7 @@
 #   DOXIE_DOWNLOAD_TIMEOUT   seconds allowed per scan download (default 120)
 #   CONSUME_DIR              directory scans are placed in (default /consume)
 #   CONSUME_OWNER            uid:gid given to downloaded files (default 999:995)
+#   DPI_THRESHOLD            dpi above which JPGs are downscaled (default 300)
 #
 # Auth is detected from /hello.json: if hasPassword is true, all further
 # requests use HTTP Basic auth with username "doxie".
@@ -31,13 +43,17 @@ PROBE_TIMEOUT="${DOXIE_TIMEOUT:-3}"
 DOWNLOAD_TIMEOUT="${DOXIE_DOWNLOAD_TIMEOUT:-120}"
 CONSUME_DIR="${CONSUME_DIR:-/consume}"
 CONSUME_OWNER="${CONSUME_OWNER:-999:995}"
+export DPI_THRESHOLD="${DPI_THRESHOLD:-300}"
 
 BASE="http://${DOXIE_IP}"
 AUTH=0
 
-mkdir -p "$CONSUME_DIR"
+mkdir -p "$CONSUME_DIR" 2>/dev/null || true
 
 log() { echo "[$(date -Is)] $*"; }
+
+# Lower-case a string (busybox-safe).
+lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 
 # GET an API endpoint, printing the body on stdout. Auth-aware; transport
 # errors are silenced so offline periods don't spam the log.
@@ -101,28 +117,69 @@ while :; do
   total=$(wc -l < "$paths_file" | tr -d ' ')
   log "found ${total} scan(s); downloading"
 
+  idx=0
   while IFS= read -r path; do
     [ -z "$path" ] && continue
+    idx=$((idx + 1))
 
     name=$(basename "$path")
-    tmp="${CONSUME_DIR}/.doxie-ingest-${name}"
-    dest="${CONSUME_DIR}/${name}"
+    ext=$(lower "${name##*.}")
+    stem="${name%.*}"
 
-    # Never overwrite an existing file in the consume dir.
-    if [ -e "$dest" ]; then
-      dest="${CONSUME_DIR}/$(date +%Y%m%dT%H%M%S)-${name}"
-    fi
+    case "$ext" in
+      jpg|jpeg) out_name="$(lower "$stem").jpg" ;;
+      *)        out_name="$name" ;;
+    esac
 
-    if download "$BASE/scans$path" "$tmp"; then
-      # Let paperless read and remove the file (see CONSUME_OWNER).
-      chown "$CONSUME_OWNER" "$tmp" 2>/dev/null || true
-      mv "$tmp" "$dest"
-      log "downloaded ${name}"
-      printf '%s\n' "$path" >> "$done_file"
-    else
-      rm -f "$tmp"
-      log "download failed for ${name}; leaving it on the scanner"
-    fi
+    # Stage in the consume dir on the same filesystem so the final `mv` is an
+    # atomic rename. The leading dot keeps paperless from picking up partial
+    # files while we work.
+    tmp="${CONSUME_DIR}/.doxie-ingest-${stem}.partial"
+    processed="${CONSUME_DIR}/.doxie-ingest-${stem}.jpg"
+
+    # Unique destination: Doxie reuses IMG_xxxx names (and the lowest free
+    # number), so always prefix with a timestamp + running index.
+    stamp=$(date +%Y%m%dT%H%M%S)
+    dest="${CONSUME_DIR}/${stamp}-${idx}-${out_name}"
+    while [ -e "$dest" ]; do
+      idx=$((idx + 1))
+      dest="${CONSUME_DIR}/${stamp}-${idx}-${out_name}"
+    done
+
+    ok=0
+    case "$ext" in
+      jpg|jpeg)
+        if download "$BASE/scans$path" "$tmp"; then
+          if preprocess "$tmp" "$processed"; then
+            rm -f "$tmp"
+            chown "$CONSUME_OWNER" "$processed" 2>/dev/null || true
+            mv "$processed" "$dest"
+            ok=1
+            log "processed ${name} -> ${out_name}"
+          else
+            rm -f "$tmp" "$processed"
+            log "preprocessing failed for ${name}; leaving it on the scanner"
+          fi
+        else
+          rm -f "$tmp"
+          log "download failed for ${name}; leaving it on the scanner"
+        fi
+        ;;
+      *)
+        # PDF (and anything else): pass through untouched.
+        if download "$BASE/scans$path" "$tmp"; then
+          chown "$CONSUME_OWNER" "$tmp" 2>/dev/null || true
+          mv "$tmp" "$dest"
+          ok=1
+          log "downloaded ${name}"
+        else
+          rm -f "$tmp"
+          log "download failed for ${name}; leaving it on the scanner"
+        fi
+        ;;
+    esac
+
+    [ "$ok" -eq 1 ] && printf '%s\n' "$path" >> "$done_file"
   done < "$paths_file"
 
   # --- delete successfully downloaded scans from the scanner ---------------

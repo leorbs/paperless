@@ -16,12 +16,21 @@
 # current date; the endpoint reports UP while that file is fresh.
 #
 # Doxie: the `doxie` sidecar periodically checks your Doxie scanner for new
-# scans, downloads them into paperless' consume folder and then deletes them
-# from the scanner. Scanner address and poll interval come from the .env file
-# (DOXIE_IP, DOXIE_POLL_INTERVAL, optional DOXIE_PASSWORD).
+# scans, preprocesses them and drops the results into paperless' consume
+# folder, then deletes the originals from the scanner.
+#   * JPG scans -> normalized with ImageMagick: 300 dpi kept as-is, 600 dpi
+#                  downscaled to 300 dpi (white-balance, level, sharpen).
+#   * PDF scans -> passed through unchanged.
+# The sidecar runs as root and chowns each file to CONSUME_OWNER (paperless'
+# uid:gid) before dropping it into the consume dir. Scanner address, poll
+# interval, optional password and the downscale threshold come from the .env
+# file (DOXIE_IP, DOXIE_POLL_INTERVAL, DOXIE_PASSWORD, DPI_THRESHOLD).
 #
 # ONE-TIME SETUP before first start:
 #   1. mkdir -p /media/nextcdata/paperless/{data,media,export,import}
+#      The import/ folder must be writable by the paperless user, since both
+#      paperless and the doxie sidecar write into it and delete from it:
+#        chown 999:995 /media/nextcdata/paperless/import
 #   2. Generate a dedicated backup key and add its PUBLIC half to your
 #      Storage Box's authorized SSH keys (Hetzner Robot panel, or
 #      `ssh-copy-id -p 23 <user>@<user>.your-storagebox.de`):
@@ -78,8 +87,8 @@ services:
       PAPERLESS_TIKA_ENABLED: 1
       PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
       PAPERLESS_TIKA_ENDPOINT: http://tika:9998
-      USERMAP_UID: 999
-      USERMAP_GID: 995
+      USERMAP_UID: ${USERMAP_UID:-999}
+      USERMAP_GID: ${USERMAP_GID:-995}
 
   gotenberg:
     image: docker.io/gotenberg/gotenberg:latest
@@ -103,6 +112,7 @@ services:
     volumes:
       - /media/nextcdata/paperless/import:/consume
       - ./doxie-client.sh:/doxie-client.sh:ro
+      - ./preprocess.sh:/preprocess.sh:ro
     environment:
       TZ: Europe/Berlin
       CONSUME_DIR: /consume
@@ -112,13 +122,15 @@ services:
       DOXIE_PASSWORD: ${DOXIE_PASSWORD:-}
       DOXIE_TIMEOUT: ${DOXIE_TIMEOUT:-3}
       DOXIE_DOWNLOAD_TIMEOUT: ${DOXIE_DOWNLOAD_TIMEOUT:-120}
+      DPI_THRESHOLD: ${DPI_THRESHOLD:-300}
     entrypoint:
       - /bin/sh
       - -c
       - |
-        apk add --no-cache curl jq
+        apk add --no-cache curl jq imagemagick
         cp /doxie-client.sh /usr/local/bin/doxie-client
-        chmod +x /usr/local/bin/doxie-client
+        cp /preprocess.sh /usr/local/bin/preprocess
+        chmod +x /usr/local/bin/doxie-client /usr/local/bin/preprocess
         exec /usr/local/bin/doxie-client
 
   backup:
