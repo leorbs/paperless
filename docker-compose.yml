@@ -21,10 +21,11 @@
 #   * JPG scans -> normalized with ImageMagick: 300 dpi kept as-is, 600 dpi
 #                  downscaled to 300 dpi (white-balance, level, sharpen).
 #   * PDF scans -> passed through unchanged.
-# The sidecar runs as root and chowns each file to CONSUME_OWNER (paperless'
-# uid:gid) before dropping it into the consume dir. Scanner address, poll
-# interval, optional password and the downscale threshold come from the .env
-# file (DOXIE_IP, DOXIE_POLL_INTERVAL, DOXIE_PASSWORD, DPI_THRESHOLD).
+# The sidecar downloads and preprocesses scans in a private WORK_DIR, runs as
+# root and chowns each finished file to CONSUME_OWNER (paperless' uid:gid)
+# before dropping it into the consume dir. Scanner address, poll interval,
+# optional password and the downscale threshold come from the .env file
+# (DOXIE_IP, DOXIE_POLL_INTERVAL, DOXIE_PASSWORD, DPI_THRESHOLD).
 #
 # ONE-TIME SETUP before first start:
 #   1. mkdir -p /media/nextcdata/paperless/{data,media,export,import}
@@ -122,6 +123,7 @@ services:
       DOXIE_PASSWORD: ${DOXIE_PASSWORD:-}
       DOXIE_TIMEOUT: ${DOXIE_TIMEOUT:-3}
       DOXIE_DOWNLOAD_TIMEOUT: ${DOXIE_DOWNLOAD_TIMEOUT:-120}
+      WORK_DIR: ${WORK_DIR:-/tmp/doxie}
       DPI_THRESHOLD: ${DPI_THRESHOLD:-300}
     entrypoint:
       - /bin/sh
